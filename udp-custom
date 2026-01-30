@@ -1,0 +1,82 @@
+#!/bin/bash
+show_menu() {
+	echo
+	cat <<-MENU
+    =================================
+      UDP Custom Manager by NDEVXLK
+    =================================
+    1) Install UDP Custom
+    2) Uninstall UDP Custom
+    3) Start UDP Custom
+    4) Stop UDP Custom
+    5) Exit
+	MENU
+}
+install_uc() {
+    if [ ! -d '/root/udp-custom' ]; then
+        sudo mkdir /root/udp-custom
+        sudo wget -4 -O /root/udp-custom/udp-custom-linux-amd64 'https://raw.githubusercontent.com/ndevxlk/udp-custom/main/udp-custom-linux-amd64'
+        sudo wget -4 -O /root/udp-custom/config.json 'https://raw.githubusercontent.com/ndevxlk/udp-custom/main/config.json'
+        sudo chmod +x /root/udp-custom/udp-custom-linux-amd64
+        sudo bash -c 'cat > /etc/systemd/system/udp-custom.service' << EOF
+[Unit]
+Description = UDP Custom
+After = network.target
+[Service]
+Type = simple
+User = root
+WorkingDirectory = /root/udp-custom
+ExecStart = /root/udp-custom/udp-custom-linux-amd64 server
+Restart = always
+[Install]
+WantedBy = multi-user.target
+EOF
+        sudo systemctl daemon-reload
+        sudo systemctl enable udp-custom.service
+        sudo systemctl start udp-custom.service
+        sudo nft add table ip nat
+        sudo nft add chain ip nat prerouting { type nat hook prerouting priority -100 \; }
+        sudo nft add rule ip nat prerouting iifname "$(ip route show default | awk '{print $5}')" udp dport != {53, 443} counter redirect to :36712
+        sudo nft list ruleset > /etc/nftables.conf
+    fi
+    echo -e '\nUDP Custom was installed successfully.'
+}
+uninstall_uc() {
+    echo
+    read -rp 'Press enter to continue...' _
+    if [ -d '/root/udp-custom' ]; then
+        stop_uc
+        sudo rm /etc/systemd/system/udp-custom.service
+        sudo systemctl daemon-reload
+        sudo rm -rf /root/udp-custom
+        sudo nft delete chain ip nat prerouting
+        sudo nft list ruleset > /etc/nftables.conf
+    fi
+    echo -e '\nUDP Custom was uninstalled successfully.'
+}
+start_uc() {
+    sudo systemctl start udp-custom.service
+    echo -e '\nUDP Custom was started successfully.'
+}
+stop_uc() {
+    sudo systemctl stop udp-custom.service
+    echo -e '\nUDP Custom was stopped successfully.'
+}
+if [ "$EUID" -ne 0 ]; then
+    echo -e '\nYou must run this script as the root user!\n'
+    exit 1
+fi
+while true; do
+    show_menu
+    read -rp $'\nChoose an option. [1-5]: ' OPTION
+    case "$OPTION" in
+        1) install_uc ;;
+        2) uninstall_uc ;;
+        3) start_uc ;;
+        4) stop_uc ;;
+        5) echo -e '\nBye.\n'; exit 0 ;;
+        *) echo -e '\nInvalid option. Choose 1-5.' ;;
+    esac
+    echo
+    read -rp 'Press enter to continue...' _
+done
